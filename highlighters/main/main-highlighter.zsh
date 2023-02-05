@@ -35,7 +35,7 @@
 : ${ZSH_HIGHLIGHT_STYLES[suffix-alias]:=fg=green,underline}
 : ${ZSH_HIGHLIGHT_STYLES[global-alias]:=fg=cyan}
 : ${ZSH_HIGHLIGHT_STYLES[precommand]:=fg=green,underline}
-: ${ZSH_HIGHLIGHT_STYLES[commandseparator]:=none}
+: ${ZSH_HIGHLIGHT_STYLES[commandseparator]:=yellow}
 : ${ZSH_HIGHLIGHT_STYLES[autodirectory]:=fg=green,underline}
 : ${ZSH_HIGHLIGHT_STYLES[path]:=underline}
 : ${ZSH_HIGHLIGHT_STYLES[path_pathseparator]:=}
@@ -46,9 +46,10 @@
 : ${ZSH_HIGHLIGHT_STYLES[command-substitution-delimiter]:=fg=magenta}
 : ${ZSH_HIGHLIGHT_STYLES[process-substitution]:=none}
 : ${ZSH_HIGHLIGHT_STYLES[process-substitution-delimiter]:=fg=magenta}
-: ${ZSH_HIGHLIGHT_STYLES[single-hyphen-option]:=none}
-: ${ZSH_HIGHLIGHT_STYLES[double-hyphen-option]:=none}
-: ${ZSH_HIGHLIGHT_STYLES[back-quoted-argument]:=none}
+: ${ZSH_HIGHLIGHT_STYLES[single-hyphen-option]:=green}
+: ${ZSH_HIGHLIGHT_STYLES[double-hyphen-option]:=green}
+: ${ZSH_HIGHLIGHT_STYLES[back-unquoted-argument]:=fg=cyan}
+: ${ZSH_HIGHLIGHT_STYLES[back-quoted-argument]:=fg=cyan}
 : ${ZSH_HIGHLIGHT_STYLES[back-quoted-argument-delimiter]:=fg=magenta}
 : ${ZSH_HIGHLIGHT_STYLES[single-quoted-argument]:=fg=yellow}
 : ${ZSH_HIGHLIGHT_STYLES[double-quoted-argument]:=fg=yellow}
@@ -58,11 +59,14 @@
 : ${ZSH_HIGHLIGHT_STYLES[back-double-quoted-argument]:=fg=cyan}
 : ${ZSH_HIGHLIGHT_STYLES[back-dollar-quoted-argument]:=fg=cyan}
 : ${ZSH_HIGHLIGHT_STYLES[assign]:=none}
+: ${ZSH_HIGHLIGHT_STYLES[assign-equal]:=none}
 : ${ZSH_HIGHLIGHT_STYLES[redirection]:=fg=yellow}
-: ${ZSH_HIGHLIGHT_STYLES[comment]:=fg=black,bold}
-: ${ZSH_HIGHLIGHT_STYLES[named-fd]:=none}
-: ${ZSH_HIGHLIGHT_STYLES[numeric-fd]:=none}
+: ${ZSH_HIGHLIGHT_STYLES[comment]:=fg=cyan,bold}
+: ${ZSH_HIGHLIGHT_STYLES[named-fd]:=fg=underline}
+: ${ZSH_HIGHLIGHT_STYLES[numeric-fd]:=fg=underline}
+: ${ZSH_HIGHLIGHT_STYLES[variable]:=fg=cyan}
 : ${ZSH_HIGHLIGHT_STYLES[arg0]:=fg=green}
+
 
 # Whether the highlighter should be called or not.
 _zsh_highlight_highlighter_main_predicate()
@@ -364,14 +368,11 @@ _zsh_highlight_highlighter_main_paint()
     'ionice' cn:t:pPu # util-linux 2.33.1-0.1
     'strace' IbeaosXPpEuOS:ACdfhikqrtTvVxyDc # strace 4.26-0.2
     'proxychains' f:q # proxychains 4.4.0
-    'torsocks' idq:upaP # Torsocks 2.3.0
-    'torify' idq:upaP # Torsocks 2.3.0
     'ssh-agent' aEPt:csDd:k # As of OpenSSH 8.1p1
     'tabbed' gnprtTuU:cdfhs:v # suckless-tools v44
     'chronic' :ev # moreutils 0.62-1
     'ifne' :n # moreutils 0.62-1
     'grc' :se # grc - a "generic colouriser" (that's their spelling, not mine)
-    'cpulimit' elp:ivz # cpulimit 0.2
   )
   # Commands that would need to skip one positional argument:
   #    flock
@@ -483,6 +484,7 @@ _zsh_highlight_main_highlighter__try_expand_parameter()
             fi
             ;;
         esac
+        _zsh_highlight_main__type "$arg" 0
         reply=( "${words[@]}" )
       else
         return 1
@@ -655,6 +657,7 @@ _zsh_highlight_main_highlighter_highlight_list()
 
     if (( $#in_alias == 0 && in_param == 0 )); then
       # Compute the new $start_pos and $end_pos, skipping over whitespace in $buf.
+      
       [[ "$proc_buf" = (#b)(#s)(''([ $'\t']|[\\]$'\n')#)(?|)* ]]
       # The first, outer parenthesis
       integer offset="${#match[1]}"
@@ -683,6 +686,7 @@ _zsh_highlight_main_highlighter_highlight_list()
       # length matches the previous value of start_pos.
       #
       # Why [,-1] is slower than [,length] isn't clear.
+
       proc_buf="${proc_buf[offset + $#arg + 1,len]}"
     fi
 
@@ -768,7 +772,7 @@ _zsh_highlight_main_highlighter_highlight_list()
         if (( $#words == 0 )) && (( ! in_redirection )); then
           # Parameter elision is happening
           (( ++in_redirection ))
-          _zsh_highlight_main_add_region_highlight $start_pos $end_pos comment
+          _zsh_highlight_main_add_region_highlight $start_pos $end_pos unknown-token
           continue
         else
           (( in_param = 1 + $#words ))
@@ -779,7 +783,7 @@ _zsh_highlight_main_highlighter_highlight_list()
         fi
       }
     fi
-
+    
     # Parse the sudo command line
     if (( ! in_redirection )); then
       if [[ $this_word == *':sudo_opt:'* ]]; then
@@ -906,7 +910,6 @@ _zsh_highlight_main_highlighter_highlight_list()
           next_word+=':start_of_pipeline:'
         fi
       fi
-
     elif ! (( in_redirection)) && [[ $this_word == *':always:'* && $arg == 'always' ]]; then
       # try-always construct
       style=reserved-word # de facto a reserved word, although not de jure
@@ -1025,9 +1028,16 @@ _zsh_highlight_main_highlighter_highlight_list()
           (command)     style=command;;
           (hashed)      style=hashed-command;;
           (none)        if (( ! in_param )) && _zsh_highlight_main_highlighter_check_assign; then
-                          _zsh_highlight_main_add_region_highlight $start_pos $end_pos assign
-                          local i=$(( arg[(i)=] + 1 ))
-                          saw_assignment=true
+                          saw_assignment=true                          
+                          local e=$(( arg[(i)=] ))
+                          local i=$(( e + 1 ))
+
+                          _zsh_highlight_main_add_region_highlight $(( start_pos )) $(( start_pos + e )) assign
+                          _zsh_highlight_main_add_region_highlight $(( start_pos + e - 1 )) $(( start_pos + e )) assign-equal
+                          if [[ $arg[e-1] == '+' ]]; then
+                            _zsh_highlight_main_add_region_highlight $(( start_pos + e - 2 )) $(( start_pos + e - 1 )) assign-equal
+                          fi
+                          
                           if [[ $arg[i] == '(' ]]; then
                             in_array_assignment=true
                             _zsh_highlight_main_add_region_highlight start_pos+i-1 start_pos+i reserved-word
@@ -1351,7 +1361,13 @@ _zsh_highlight_main_highlighter_highlight_argument()
     i=${arg[(ib.i.)[\\\'\"\`\$\<\>\*\?]]}
     case "$arg[$i]" in
       "") break;;
-      "\\") (( i += 1 )); continue;;
+      "\\") 
+        highlights+=(
+          $(( start_pos + i - 1 )) $((start_pos + i + 1)) back-unquoted-argument
+        )
+        (( i += 1 ))
+        continue
+        ;;
       "'")
         _zsh_highlight_main_highlighter_highlight_single_quote $i
         (( i = REPLY ))
@@ -1397,6 +1413,29 @@ _zsh_highlight_main_highlighter_highlight_argument()
             highlights+=($(( start_pos + i - 1)) $(( start_pos + i )) command-substitution-delimiter-unquoted)
           fi
           continue
+        else #if (( i == 1 )); then
+          local var_style=unknown-token
+          local parameter_name=${arg:$i}
+          if [[ $arg[i+1] == '{' ]]; then
+            parameter_name=${${arg:$i+1}%?}
+
+            if [[ ${arg[-1]} != '}' ]] || [[ ! ${parameter_name} =~ ^${~parameter_name_pattern}$ ]]; then
+              continue
+            fi
+          fi
+
+          if [[ -v "${parameter_name}" ]]; then
+            var_style=variable
+          fi
+
+          #echo "[(${#arg}) ($arg) ($end_pos)  ->   ($start_pos + $i - 1) = $(( start_pos + i - 1))   ->   ( $start_pos + ${#arg:$i-1} ) = $(( start_pos + ${#arg:$i-1} ))]"
+          local start=$(( start_pos + i - 1 )) 
+          if (( start < $end_pos )); then
+            highlights+=($start $end_pos $var_style) 
+          elif $saw_assignment; then
+            highlights+=($(( i - 1 )) $(( i + end_pos )) $var_style)
+          fi
+          (( i += ${#arg:$i-1} ))
         fi
         while [[ $arg[i+1] == [=~#+'^'] ]]; do
           (( i += 1 ))
@@ -1799,8 +1838,9 @@ _zsh_highlight_main_highlighter_highlight_arithmetic()
     # If unclosed, i points past the end
     (( i-- ))
   fi
-    style=arithmetic-expansion
-  reply=($(( start_pos + $1 - 1)) $(( start_pos + i )) arithmetic-expansion $reply)
+  style=arithmetic-expansion
+  reply=($(( start_pos + $1 )) $(( start_pos + i )) arithmetic-expansion $reply)
+  reply=($(( start_pos + $1 - 1)) $(( start_pos + $1 )) command-substitution-delimiter $reply)
   REPLY=$i
 }
 
